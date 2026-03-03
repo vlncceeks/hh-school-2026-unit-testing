@@ -16,8 +16,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class LibraryManagerTest {
@@ -32,7 +31,7 @@ class LibraryManagerTest {
     private LibraryManager libraryManager;
 
     @BeforeEach
-    void setUp(){
+    void setUp() {
         libraryManager.addBook("1", 10);
     }
 
@@ -49,24 +48,18 @@ class LibraryManagerTest {
         assertEquals(10, libraryManager.getAvailableCopies("2"));
     }
 
-
-
     @Test
     void shouldNotBorrowExistingBookByNotActiveUser() {
         when(userService.isUserActive("1")).thenReturn(false);
-        assertEquals(
-                false,
-                libraryManager.borrowBook("1", "1")
-        );
+        assertFalse(libraryManager.borrowBook("1", "1"));
+        verify(notificationService, only()).notifyUser("1", "Your account is not active.");
     }
 
     @Test
     void shouldNotBorrowNonExistingBookByNotActiveUser() {
         when(userService.isUserActive("1")).thenReturn(false);
-        assertEquals(
-                false,
-                libraryManager.borrowBook("2", "1")
-        );
+        assertFalse(libraryManager.borrowBook("2", "1"));
+        verify(notificationService, only()).notifyUser("1", "Your account is not active.");
     }
 
     @Test
@@ -74,21 +67,27 @@ class LibraryManagerTest {
         when(userService.isUserActive("1")).thenReturn(true);
         assertTrue(libraryManager.borrowBook("1", "1"));
         assertEquals(9, libraryManager.getAvailableCopies("1"));
+        verify(notificationService, only()).notifyUser("1", "You have borrowed the book: 1");
     }
 
     @Test
     void shouldNotBorrowNonExistingBookByActiveUser() {
         when(userService.isUserActive("1")).thenReturn(true);
-        assertEquals(false, libraryManager.borrowBook("2", "1"));
-    }
-
-    @Test
-    void shouldNotReturnNonExistingBook() {
-        assertFalse(libraryManager.returnBook("2", "1"));
+        assertFalse(libraryManager.borrowBook("2", "1"));
+        verify(notificationService, never()).notifyUser(anyString(), anyString());
     }
 
     @Test
     void shouldNotReturnNotBorrowedBook() {
+        assertFalse(libraryManager.returnBook("2", "1"));
+        verify(notificationService, never()).notifyUser(anyString(), anyString());
+    }
+
+    @Test
+    void shouldNotReturnBookBorrowedByAnotherUser() {
+        when(userService.isUserActive("2")).thenReturn(true);
+        libraryManager.borrowBook("1", "2");
+
         assertFalse(libraryManager.returnBook("1", "1"));
     }
 
@@ -99,6 +98,7 @@ class LibraryManagerTest {
 
         assertTrue(libraryManager.returnBook("1", "1"));
         assertEquals(10, libraryManager.getAvailableCopies("1"));
+        verify(notificationService, times(1)).notifyUser("1", "You have returned the book: 1");
     }
 
     @Test
@@ -121,17 +121,12 @@ class LibraryManagerTest {
 
     @ParameterizedTest
     @CsvSource({
-            "0, false, false",
-            "1, true, false",
-            "2, false, true",
-            "3, true, true",
+            "0, false, false, 0.0",
+            "1, true, false, 0.75",
+            "2, false, true, 0.8",
+            "3, true, true, 1.8",
     })
-    void testCalculateDynamicLateFeeWithCorrectData(int overdueDays, boolean isBestseller, boolean isPremiumMember) {
-        double result = BigDecimal.valueOf(
-                    overdueDays * 0.5 * (isBestseller ? 1.5 : 1) * (isPremiumMember ? 0.8 : 1)
-                ).setScale(2, RoundingMode.HALF_UP)
-                .doubleValue();
-
+    void testCalculateDynamicLateFeeWithCorrectData(int overdueDays, boolean isBestseller, boolean isPremiumMember, double result ) {
         assertEquals(
                 result,
                 libraryManager.calculateDynamicLateFee(overdueDays, isBestseller, isPremiumMember)
